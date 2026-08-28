@@ -14,6 +14,7 @@ from spotdl_lyrics_lora.csv_importer import find_and_load_csv
 from spotdl_lyrics_lora.language_detector import detect_language
 from spotdl_lyrics_lora.lyrics_cleaner import clean_lyrics_text
 from spotdl_lyrics_lora.lyrics_providers import fetch_lyrics_multi_source
+from spotdl_lyrics_lora.lyrics_structurer import structure_lyrics_heuristically, has_structural_tags
 from spotdl_lyrics_lora.spotdl_downloader import download_tracks
 
 
@@ -25,6 +26,7 @@ def process_audio_file(
     auto_analyze: bool = False,
     use_ai: bool = False,
     ai_provider: str = "auto",
+    structure_tags: bool = False,
     local_model: Optional[str] = None,
     local_url: Optional[str] = None,
     csv_metadata: Optional[Dict[str, Any]] = None,
@@ -67,6 +69,7 @@ def process_audio_file(
         ts_val = features.get("timesignature", "4")
         mood_tags = features.get("mood_tags", [])
 
+    # Structural tagging: AI or Heuristic
     ai_data = None
     if use_ai:
         ai_data = enrich_metadata_with_ai(
@@ -81,8 +84,10 @@ def process_audio_file(
         )
         if ai_data and ai_data.get("structured_lyrics"):
             cleaned_lyrics = clean_lyrics_text(ai_data["structured_lyrics"])
+    elif (structure_tags or auto_analyze) and cleaned_lyrics and not has_structural_tags(cleaned_lyrics):
+        cleaned_lyrics = structure_lyrics_heuristically(cleaned_lyrics)
 
-    if cleaned_lyrics and (not lyrics_file.exists() or overwrite):
+    if cleaned_lyrics and (not lyrics_file.exists() or overwrite or use_ai or structure_tags):
         lyrics_file.write_text(cleaned_lyrics, encoding="utf-8")
         print(f"  [Saved Lyrics]  -> {lyrics_file.name}")
 
@@ -128,6 +133,7 @@ def process_folder(
     auto_analyze: bool = False,
     use_ai: bool = False,
     ai_provider: str = "auto",
+    structure_tags: bool = False,
     local_model: Optional[str] = None,
     local_url: Optional[str] = None,
 ) -> List[str]:
@@ -150,7 +156,7 @@ def process_folder(
     for i, audio in enumerate(audio_files, 1):
         print(f"[{i}/{len(audio_files)}] {audio.name}")
         out = process_audio_file(
-            str(audio), output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, local_model, local_url, csv_data
+            str(audio), output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, structure_tags, local_model, local_url, csv_data
         )
         if out:
             created.append(out)
@@ -166,6 +172,7 @@ def download_and_prepare(
     auto_analyze: bool = False,
     use_ai: bool = False,
     ai_provider: str = "auto",
+    structure_tags: bool = False,
     local_model: Optional[str] = None,
     local_url: Optional[str] = None,
 ) -> List[str]:
@@ -174,7 +181,7 @@ def download_and_prepare(
     created = []
     for p in audio_files:
         out = process_audio_file(
-            p, output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, local_model, local_url
+            p, output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, structure_tags, local_model, local_url
         )
         if out:
             created.append(out)

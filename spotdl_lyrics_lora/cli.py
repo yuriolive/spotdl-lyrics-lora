@@ -25,6 +25,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing files")
     parser.add_argument("--json", action="store_true", help="Generate .json & .caption.txt metadata")
     parser.add_argument("--auto-analyze", action="store_true", help="Zero-AI auto detection of BPM, key & caption")
+    parser.add_argument("--structure-lyrics", action="store_true", help="Insert [Intro], [Verse], [Chorus] section tags")
     parser.add_argument("--use-ai", action="store_true", help="Use AI (tiny local model or cloud API) for enrichment")
     parser.add_argument(
         "--ai-provider",
@@ -62,6 +63,7 @@ def main() -> None:
             args.auto_analyze,
             args.use_ai,
             args.ai_provider,
+            args.structure_lyrics,
             args.local_model,
             args.local_url,
         )
@@ -74,6 +76,7 @@ def main() -> None:
             args.auto_analyze,
             args.use_ai,
             args.ai_provider,
+            args.structure_lyrics,
             args.local_model,
             args.local_url,
         )
@@ -86,6 +89,7 @@ def main() -> None:
             args.auto_analyze,
             args.use_ai,
             args.ai_provider,
+            args.structure_lyrics,
             args.local_model,
             args.local_url,
         )
