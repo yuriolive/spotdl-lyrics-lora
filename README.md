@@ -4,34 +4,74 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-Automated toolkit to download tracks via **SpotDL**, clean and format timestamp-free lyrics, and extract musical metadata (**BPM, Key/Scale, Time Signature, and Captions**) specifically formatted for **ACE-Step 1.5 LoRA training**.
+Automated toolkit to download tracks via **SpotDL**, clean and format timestamp-free lyrics, and extract musical metadata (**BPM, Key/Scale, Time Signature, Section Structure, and Captions**) specifically formatted for **ACE-Step 1.5 LoRA training**.
 
 ---
 
-## ⚡ Multi-Tier Architecture
+## 🏛️ System Architecture
 
-| Mode | Engine | Speed | Requirements | Features |
+The toolkit operates as a modular, 5-stage pipeline designed for speed, flexibility, and offline privacy:
+
+```mermaid
+flowchart TD
+    subgraph S1["1. Input / Download"]
+        A["Spotify URL / Search Query"] -->|SpotDL| B["Audio Track (.mp3 / .wav)"]
+        LocalAudio["Local Audio Folder"] --> B
+    end
+
+    subgraph S2["2. Lyrics Retrieval & Sanitization"]
+        B --> Meta["ID3 Tags & Companion .lrc"]
+        Meta -->|Missing Lyrics?| Fallback["LRCLIB / syncedlyrics / Lyrics.ovh"]
+        Fallback --> Clean["Lyrics Cleaner<br/>(Strips timestamps & metadata headers)"]
+        Meta -->|Found Lyrics| Clean
+    end
+
+    subgraph S3["3. Multi-Tier Analysis Engine"]
+        Clean --> Router{"Choose Engine"}
+        Router -->|1. Zero-AI DSP| DSP["Fast DSP Extractor (~0.1s)<br/>• BPM (Energy Autocorrelation)<br/>• Key/Scale (12-Chroma STFT)<br/>• Acoustic Mood (RMS & Centroid)"]
+        Router -->|2. Tiny Local LLM| LocalLLM["Ollama / LM Studio / Transformers<br/>(Qwen 0.5B / Llama 3.2 1B)"]
+        Router -->|3. Fast Cloud AI| CloudAI["Gemini 2.5 Flash / GPT-4o-mini"]
+    end
+
+    subgraph S4["4. Structural Section Tagging"]
+        DSP --> StructRule["Heuristic Tagger<br/>• [Chorus] via repetition count<br/>• [Intro] / [Verse] / [Bridge] / [Outro]"]
+        LocalLLM --> StructAI["AI Semantic Stanza Structurer"]
+        CloudAI --> StructAI
+    end
+
+    subgraph S5["5. ACE-Step 1.5 Dataset Output"]
+        StructRule --> Out["Dataset Files"]
+        StructAI --> Out
+        Out --> F1["🎵 song.mp3 (Audio)"]
+        Out --> F2["📝 song.lyrics.txt (Clean & Tagged)"]
+        Out --> F3["⚙️ song.json (BPM, Key, Caption, Lang)"]
+        Out --> F4["📄 song.caption.txt (Text Description)"]
+    end
+```
+
+---
+
+## 🧠 Easy-to-Understand Component Breakdown
+
+Here is what happens under the hood in plain terms:
+
+| Step | Component | Plain English Explanation |
+| :--- | :--- | :--- |
+| **1. Audio Ingestion** | `spotdl_downloader` | Takes Spotify links, playlists, or local folders and ensures you have high-quality audio files ready on disk. |
+| **2. Lyrics Sanitizer** | `lyrics_cleaner` & `lyrics_providers` | Finds the song's lyrics (from ID3 tags, local `.lrc`, or free online lyrics APIs) and wipes away messy timestamps like `[01:23.45]` and metadata headers. |
+| **3. Audio Feature Detection** | `audio_analyzer` & `language_detector` | Listens to the song's audio mathematically in **0.1s** to calculate exact **BPM tempo**, **musical key** (e.g. *B major*), **energy level**, and detects song language. |
+| **4. Section Structurer** | `lyrics_structurer` & `ai_annotator` | Turns plain lyrics walls into organized sections (`[Intro]`, `[Verse 1]`, `[Chorus]`, `[Bridge]`, `[Outro]`) using either local pattern repetition or a tiny AI model. |
+| **5. Caption & Metadata Packaging** | `caption_generator` & `dataset_validator` | Generates diffusion training captions and `.json` metadata pairs, then audits the entire dataset to ensure 100% training readiness. |
+
+---
+
+## ⚡ Multi-Tier Modes Comparison
+
+| Mode | Engine | Speed | Requirements | Best For |
 | :--- | :--- | :--- | :--- | :--- |
-| **Zero-AI Mode** | DSP Signal Analysis | **~0.1s / song** | **100% offline & free** | Exact BPM, Key/scale, RMS energy, and acoustic mood |
-| **Tiny Local Model** | Ollama / LM Studio / Transformers (`qwen2.5:0.5b`, `llama3.2:1b`) | **~0.5s / song** | **100% offline & local** (Zero API keys) | Adds `[Verse]` / `[Chorus]` section tags & studio captions |
-| **Fast Cloud AI** | Gemini 2.5 Flash / GPT-4o-mini | **~1.5s / song** | `GEMINI_API_KEY` / `OPENAI_API_KEY` | Deep multimodal genre understanding & diffusion captions |
-
----
-
-## ⚡ Features
-
-- 🎧 **SpotDL Integration**: Programmatically download tracks, albums, and playlists directly from Spotify URLs or search queries.
-- 📝 **Timestamp-Free Lyrics Cleaning**: Strips LRC timestamps (`[mm:ss.xx]`, `[mm:ss.xxx]`, `<mm:ss.xx>`) and metadata headers while preserving musical structure tags (`[Intro]`, `[Verse]`, `[Chorus]`, `[Bridge]`, `[Outro]`).
-- 🌐 **Multi-Source Lyrics Fallback**: Queries **LRCLIB** (free, exact match & search) and **Lyrics.ovh** automatically when embedded lyrics or companion `.lrc` files are missing.
-- ⚡ **Zero-AI DSP Mode (`--auto-analyze`)**:
-  - **BPM**: Onset energy flux & autocorrelation via `scipy`/`numpy` in **~0.1s**.
-  - **Key & Scale**: 12-chroma pitch class STFT correlated against 24 Krumhansl-Kessler harmonic profiles in **~0.1s**.
-  - **Acoustic Mood**: RMS energy and spectral brightness dynamically categorize vibe (`punchy, high-energy`, `warm, bass-heavy`, `bright synth`, `driving`).
-  - **Language Detection**: Deterministic script & stopword analysis (`pt`, `es`, `en`, `ja`, `zh`, `ko`, `fr`, `de`, `it`).
-- 🦙 **Tiny Local Model Integration (`--ai-provider ollama` / `--ai-provider local`)**:
-  - Run ultra-lightweight models (e.g. `qwen2.5:0.5b`, `llama3.2:1b`, `smollm2:1.7b`, `phi3:mini`) locally via Ollama, LM Studio, or vLLM to structure lyrics without needing any internet connection or cloud API keys.
-- 📊 **Key-BPM-Finder CSV Auto-Importer**: Drag-and-drop CSV exports from [Key-BPM-Finder](https://vocalremover.org/key-bpm-finder) or DJ software.
-- 🔍 **Dataset Validator (`--validate`)**: Audits dataset readiness and checks formatting before starting LoRA fine-tuning.
+| **Zero-AI Mode** | DSP Signal Analysis | **~0.1s / song** | **100% offline & free** | Maximum speed, zero API keys, batch processing large libraries |
+| **Tiny Local AI** | Ollama / LM Studio / Transformers (`qwen2.5:0.5b`, `llama3.2:1b`) | **~0.5s / song** | **100% offline & local** (Zero API keys) | Privacy-first AI structural tagging & rich captions with < 1GB RAM |
+| **Fast Cloud AI** | Gemini 2.5 Flash / GPT-4o-mini | **~1.5s / song** | `GEMINI_API_KEY` or `OPENAI_API_KEY` | Studio-grade diffusion captions and deep subgenre understanding |
 
 ---
 
@@ -64,15 +104,14 @@ pip install -e .
 Process an existing directory of audio files (`.mp3`, `.wav`, `.flac`, `.ogg`, `.opus`, `.m4a`):
 
 ```bash
-uv run spotdl-lora --dir ./my_music --auto-analyze --overwrite
+uv run spotdl-lora --dir ./my_music --auto-analyze --structure-lyrics --overwrite
 ```
 
 ### 2. Tiny Local Model (Ollama / Local LLM)
 Structure lyrics into `[Verse]`/`[Chorus]` and generate descriptions using a tiny local model:
 
 ```bash
-# Example with Ollama running Qwen 0.5B (takes < 0.5 GB RAM)
-# 1. Run model: ollama run qwen2.5:0.5b
+# 1. Run Ollama model: ollama run qwen2.5:0.5b
 # 2. Run spotdl-lora:
 uv run spotdl-lora --dir ./my_music --use-ai --ai-provider ollama --local-model qwen2.5:0.5b --overwrite
 ```
@@ -106,7 +145,7 @@ Each audio track is paired with ACE-Step 1.5 compliant training files:
 ```
 dataset/
 ├── song1.mp3               # Audio track
-├── song1.lyrics.txt        # Clean lyrics without timestamps
+├── song1.lyrics.txt        # Clean lyrics with [Intro], [Verse], [Chorus] tags
 ├── song1.json              # Annotations (BPM, Key, Caption, Language)
 └── song1.caption.txt       # Natural language description
 ```
@@ -120,6 +159,25 @@ dataset/
     "timesignature": "4",
     "language": "pt"
 }
+```
+
+#### Example `song1.lyrics.txt`:
+```txt
+[Verse 1]
+Look at what you cannot have
+Boss bitch, mulher mala, mala
+Encuéntrame en el trópico
+Por los lados de Punta Cana
+
+[Chorus]
+Estoy en roce, sin pose
+Hoy yo pago to'
+Y después de las doce
+A mí me gusta to'
+
+[Outro]
+Sá-sá-sácala, tómala
+Sá-sá-sá-sá-sá-sá
 ```
 
 ---
@@ -136,7 +194,7 @@ from spotdl_lyrics_lora import (
 )
 
 # 1. Process all songs with Zero-AI DSP
-created = process_folder("./funk-pop", auto_analyze=True, overwrite=True)
+created = process_folder("./funk-pop", auto_analyze=True, structure_tags=True, overwrite=True)
 
 # 2. Process with local Ollama model
 created = process_folder("./funk-pop", use_ai=True, ai_provider="ollama", local_model="qwen2.5:0.5b", overwrite=True)
@@ -161,6 +219,7 @@ download_and_prepare("https://open.spotify.com/track/...", output_dir="./dataset
 | `--download` | Spotify URL (track, album, playlist) or search query | `None` |
 | `-o, --output` | Destination directory for output files | Same as audio |
 | `--auto-analyze` | Zero-AI detection of BPM, Key, Time Signature, and Captions | `False` |
+| `--structure-lyrics` | Automatically insert `[Intro]`, `[Verse]`, `[Chorus]`, `[Outro]` tags | `False` |
 | `--use-ai` | Use AI model for section tagging & captions | `False` |
 | `--ai-provider` | AI provider (`ollama`, `local`, `transformers`, `gemini`, `openai`, `openrouter`) | `auto` |
 | `--local-model` | Local model name (e.g. `qwen2.5:0.5b`, `llama3.2:1b`) | `qwen2.5:0.5b` |
