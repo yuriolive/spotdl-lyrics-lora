@@ -1,0 +1,28 @@
+[project]
+name = "spotdl-lyrics-lora"
+version = "0.1.0"
+description = "Automated Spotify/audio downloader, timestamp-free lyrics cleaner, and metadata annotator (BPM, Key, Captions) for ACE-Step 1.5 LoRA training."
+readme = "README.md"
+authors = [{ name = "Yuri Oliveira" }]
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "requests>=2.28.0",
+    "numpy>=1.22.0",
+    "scipy>=1.9.0",
+    "soundfile>=0.12.0",
+    "spotdl>=4.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+spotdl-lora = "spotdl_lyrics_lora.cli:main"
+spotdl-prepare = "spotdl_lyrics_lora.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
