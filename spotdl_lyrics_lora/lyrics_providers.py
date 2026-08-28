@@ -115,6 +115,24 @@ class LyricsOVHSource(LyricsSource):
         return None
 
 
+class SyncedLyricsPackageSource(LyricsSource):
+    """Fetch lyrics via syncedlyrics package (NetEase, Musixmatch, Megalobiz, Genius)."""
+
+    def fetch_lyrics(
+        self,
+        title: str,
+        artist: str = "",
+        album: str = "",
+        duration: Optional[int] = None,
+    ) -> Optional[str]:
+        try:
+            import syncedlyrics
+            query = f"{title} {artist}".strip()
+            return syncedlyrics.search(query, enhanced=False)
+        except Exception:
+            return None
+
+
 def fetch_lyrics_multi_source(
     title: str,
     artist: str = "",
@@ -124,7 +142,7 @@ def fetch_lyrics_multi_source(
 ) -> Optional[str]:
     """Try fetching lyrics across registered sources in priority order."""
     if sources is None:
-        sources = [LRCLibSource(), LyricsOVHSource()]
+        sources = [LRCLibSource(), SyncedLyricsPackageSource(), LyricsOVHSource()]
 
     for source in sources:
         try:

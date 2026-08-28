@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 from spotdl_lyrics_lora.lyrics_providers import (
     LRCLibSource,
     LyricsOVHSource,
+    SyncedLyricsPackageSource,
     fetch_lyrics_multi_source,
 )
 
@@ -48,8 +49,9 @@ class TestLyricsProviders(unittest.TestCase):
         self.assertEqual(lyrics, "Lyrics from OVH")
 
     @patch.object(LRCLibSource, "fetch_lyrics", return_value=None)
+    @patch.object(SyncedLyricsPackageSource, "fetch_lyrics", return_value=None)
     @patch.object(LyricsOVHSource, "fetch_lyrics", return_value="OVH Fallback Lyrics")
-    def test_multi_source_fallback(self, mock_ovh, mock_lrclib):
+    def test_multi_source_fallback(self, mock_ovh, mock_synced, mock_lrclib):
         lyrics = fetch_lyrics_multi_source("Song", "Artist")
         self.assertEqual(lyrics, "OVH Fallback Lyrics")
 
