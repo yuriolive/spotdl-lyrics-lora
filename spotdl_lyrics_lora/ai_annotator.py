@@ -9,43 +9,89 @@ import re
 from typing import Dict, Any, Optional
 import requests
 
-PROMPT_TEMPLATE = """You are a music AI dataset annotator. Analyze this song to produce ACE-Step 1.5 LoRA training metadata.
+PROMPT_TEMPLATE = """You are an audio AI dataset annotator. Analyze this track and output metadata for ACE-Step 1.5 LoRA fine-tuning.
 
-Track Info:
+Track:
 - Title: {title}
 - Artist: {artist}
-- Detected BPM: {bpm}
-- Detected Key: {keyscale}
-- Raw Lyrics:
+- BPM: {bpm}
+- Key: {keyscale}
+- Lyrics:
 {lyrics}
 
-Generate a valid JSON object matching this schema:
+Generate a valid JSON object matching this exact schema:
 {{
-    "caption": "A concise, descriptive caption (style, instruments, mood, vocals, tempo, key) for audio diffusion training",
-    "structured_lyrics": "The full lyrics with clean [Intro], [Verse], [Chorus], [Bridge], [Outro] tags, without timestamps",
-    "genre": "Precise primary genre / style",
-    "bpm": {bpm_or_null},
-    "keyscale": "{keyscale_or_null}",
-    "language": "ISO 639-1 code (e.g. pt, es, en, ja)"
+    "caption": "Rich, descriptive studio caption (genre, subgenre, rhythm, instruments, vocals, vibe, tempo, key) for diffusion model training",
+    "structured_lyrics": "The full lyrics with [Intro], [Verse 1], [Chorus], [Bridge], [Outro] section tags on separate lines without timestamps",
+    "genre": "Precise genre / subgenre",
+    "language": "Two-letter ISO 639-1 code (pt, es, en, ja, fr, de, it, etc.)"
 }}
-Respond ONLY with the JSON object.
+Respond ONLY with the raw JSON object.
 """
 
 _TRANSFORMERS_CACHE: Dict[str, Any] = {}
 
+LANG_NAME_TO_CODE = {
+    "portuguese": "pt", "português": "pt", "pt": "pt",
+    "spanish": "es", "español": "es", "es": "es",
+    "english": "en", "inglês": "en", "en": "en",
+    "japanese": "ja", "ja": "ja",
+    "korean": "ko", "ko": "ko",
+    "chinese": "zh", "zh": "zh",
+    "french": "fr", "fr": "fr",
+    "german": "de", "de": "de",
+    "italian": "it", "it": "it",
+}
+
+
+def _normalize_structured_lyrics(val: Any) -> str:
+    """Normalize structured lyrics output from list/dict/string into clean text."""
+    if isinstance(val, list):
+        out = []
+        for item in val:
+            if isinstance(item, dict):
+                for k, v in item.items():
+                    tag = k if k.startswith("[") else f"[{k}]"
+                    out.append(tag)
+                    out.append(str(v).strip())
+                    out.append("")
+            else:
+                out.append(str(item).strip())
+        return "\n".join(out).strip()
+    if isinstance(val, dict):
+        out = []
+        for k, v in val.items():
+            tag = k if k.startswith("[") else f"[{k}]"
+            out.append(tag)
+            out.append(str(v).strip())
+            out.append("")
+        return "\n".join(out).strip()
+    if isinstance(val, str):
+        cleaned = re.sub(r"\s*(\[[a-zA-Z0-9\s\-]+\])\s*", r"\n\n\1\n", val)
+        return "\n".join(l.strip() for l in cleaned.splitlines() if l.strip())
+    return ""
+
 
 def _extract_json_from_response(raw_text: str) -> Optional[Dict[str, Any]]:
     """Extract and parse JSON object from raw model text output."""
+    data = None
     try:
-        return json.loads(raw_text.strip())
+        data = json.loads(raw_text.strip())
     except Exception:
-        pass
-    match = re.search(r"\{[\s\S]*\}", raw_text)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except Exception:
-            pass
+        match = re.search(r"\{[\s\S]*\}", raw_text)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+            except Exception:
+                pass
+
+    if isinstance(data, dict):
+        if "structured_lyrics" in data:
+            data["structured_lyrics"] = _normalize_structured_lyrics(data["structured_lyrics"])
+        if "language" in data and isinstance(data["language"], str):
+            lang_lower = data["language"].strip().lower()
+            data["language"] = LANG_NAME_TO_CODE.get(lang_lower, lang_lower[:2])
+        return data
     return None
 
 
@@ -61,8 +107,7 @@ def call_ollama_api(
     try:
         resp = requests.post(url, json=body, timeout=timeout)
         if resp.status_code == 200:
-            raw_response = resp.json().get("response", "")
-            return _extract_json_from_response(raw_response)
+            return _extract_json_from_response(resp.json().get("response", ""))
     except Exception:
         pass
     return None
@@ -84,8 +129,7 @@ def call_local_openai_api(
     try:
         resp = requests.post(url, json=body, timeout=timeout)
         if resp.status_code == 200:
-            content = resp.json()["choices"][0]["message"]["content"]
-            return _extract_json_from_response(content)
+            return _extract_json_from_response(resp.json()["choices"][0]["message"]["content"])
     except Exception:
         pass
     return None
@@ -111,10 +155,10 @@ def call_transformers_pipeline(
             )
         pipe = _TRANSFORMERS_CACHE[model_id]
         messages = [
-            {"role": "system", "content": "You are a music metadata assistant. Respond ONLY in valid JSON matching the requested schema."},
+            {"role": "system", "content": "You are a music metadata assistant. Respond ONLY in valid JSON."},
             {"role": "user", "content": prompt}
         ]
-        out = pipe(messages, max_new_tokens=400, temperature=0.2)
+        out = pipe(messages, max_new_tokens=500, temperature=0.2)
         content = out[0]["generated_text"][-1]["content"]
         return _extract_json_from_response(content)
     except Exception:
@@ -158,29 +202,6 @@ def call_openai_api(prompt: str, api_key: str, model: str = "gpt-4o-mini", timeo
     return None
 
 
-def call_openrouter_api(prompt: str, api_key: str, model: str = "google/gemini-2.5-flash", timeout: int = 15) -> Optional[Dict[str, Any]]:
-    """Call OpenRouter API for structured JSON response."""
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "https://github.com/yuriolive/spotdl-lyrics-lora",
-    }
-    body = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "response_format": {"type": "json_object"},
-        "temperature": 0.2,
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=body, timeout=timeout)
-        if resp.status_code == 200:
-            return _extract_json_from_response(resp.json()["choices"][0]["message"]["content"])
-    except Exception:
-        pass
-    return None
-
-
 def enrich_metadata_with_ai(
     title: str,
     artist: str,
@@ -197,19 +218,15 @@ def enrich_metadata_with_ai(
         artist=artist,
         bpm=bpm or "Unknown",
         keyscale=keyscale or "Unknown",
-        bpm_or_null=bpm if bpm else "null",
-        keyscale_or_null=keyscale if keyscale else "",
-        lyrics=lyrics[:3000] if lyrics else "(Instrumental / No Lyrics)",
+        lyrics=lyrics[:2500] if lyrics else "(Instrumental / No Lyrics)",
     )
 
-    # 1. In-process Transformers on CUDA
     if provider == "transformers":
         m = model or "Qwen/Qwen2.5-0.5B-Instruct"
         res = call_transformers_pipeline(prompt, model_id=m)
         if res:
             return res
 
-    # 2. Local Ollama or local OpenAI-compatible server
     if provider in ("local", "ollama") or (provider == "auto" and local_url):
         url = local_url or "http://localhost:11434"
         m = model or "qwen2.5:0.5b"
@@ -220,7 +237,6 @@ def enrich_metadata_with_ai(
         if res:
             return res
 
-    # 3. Gemini
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if (provider in ("auto", "gemini")) and gemini_key:
         m = model or "gemini-2.5-flash"
@@ -228,19 +244,10 @@ def enrich_metadata_with_ai(
         if res:
             return res
 
-    # 4. OpenAI
     openai_key = os.environ.get("OPENAI_API_KEY")
     if (provider in ("auto", "openai")) and openai_key:
         m = model or "gpt-4o-mini"
         res = call_openai_api(prompt, openai_key, model=m)
-        if res:
-            return res
-
-    # 5. OpenRouter
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-    if (provider in ("auto", "openrouter")) and openrouter_key:
-        m = model or "google/gemini-2.5-flash"
-        res = call_openrouter_api(prompt, openrouter_key, model=m)
         if res:
             return res
 

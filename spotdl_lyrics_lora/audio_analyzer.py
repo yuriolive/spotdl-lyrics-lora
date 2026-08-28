@@ -38,6 +38,37 @@ def estimate_bpm_from_signal(signal: np.ndarray, sample_rate: float) -> int:
     return int(round(60 * fps / best_lag))
 
 
+def estimate_timesignature_from_signal(signal: np.ndarray, sample_rate: float, bpm: int) -> str:
+    """Estimate metric meter (time signature) 3/4 or 4/4 via bar-level periodicity correlation."""
+    hop = int(sample_rate * 0.02)
+    win_size = hop * 2
+    if len(signal) <= win_size or bpm <= 0:
+        return "4"
+
+    frames = np.lib.stride_tricks.sliding_window_view(np.abs(signal), win_size)[::hop]
+    energy = np.mean(frames, axis=1)
+    diff = np.maximum(0, np.diff(energy))
+    smooth_filter = max(1, int(sample_rate / hop * 3))
+    diff = np.maximum(0, diff - uniform_filter1d(diff, size=smooth_filter))
+
+    corr = correlate(diff, diff, mode="full")
+    corr = corr[len(corr) // 2 :]
+
+    fps = sample_rate / hop
+    beat_lag = int(round(60.0 * fps / bpm))
+    lag_3 = int(3 * beat_lag)
+    lag_4 = int(4 * beat_lag)
+
+    if lag_4 >= len(corr):
+        return "4"
+
+    w = max(1, int(beat_lag * 0.1))
+    val_3 = float(np.max(corr[max(0, lag_3 - w) : min(len(corr), lag_3 + w + 1)]))
+    val_4 = float(np.max(corr[max(0, lag_4 - w) : min(len(corr), lag_4 + w + 1)]))
+
+    return "3" if val_3 > 1.18 * val_4 else "4"
+
+
 def estimate_key_from_signal(signal: np.ndarray, sample_rate: float) -> str:
     """Estimate musical key and scale via 12-chroma pitch class correlation."""
     n_fft = 2048
@@ -120,10 +151,11 @@ def analyze_audio_features(file_path: str) -> Dict[str, Any]:
         y = data[::factor]
         eff_sr = sr / factor
 
+        detected_bpm = estimate_bpm_from_signal(y, eff_sr)
         return {
-            "bpm": estimate_bpm_from_signal(y, eff_sr),
+            "bpm": detected_bpm,
             "keyscale": estimate_key_from_signal(y, eff_sr),
-            "timesignature": "4",
+            "timesignature": estimate_timesignature_from_signal(y, eff_sr, detected_bpm),
             "mood_tags": estimate_acoustic_mood(y, eff_sr),
         }
     except Exception:
