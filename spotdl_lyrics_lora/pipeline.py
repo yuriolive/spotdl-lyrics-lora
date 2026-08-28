@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -16,6 +17,11 @@ from spotdl_lyrics_lora.lyrics_cleaner import clean_lyrics_text
 from spotdl_lyrics_lora.lyrics_providers import fetch_lyrics_multi_source
 from spotdl_lyrics_lora.lyrics_structurer import structure_lyrics_heuristically, has_structural_tags
 from spotdl_lyrics_lora.spotdl_downloader import download_tracks
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def process_audio_file(
@@ -69,7 +75,6 @@ def process_audio_file(
         ts_val = features.get("timesignature", "4")
         mood_tags = features.get("mood_tags", [])
 
-    # Structural tagging: AI or Heuristic
     ai_data = None
     if use_ai:
         ai_data = enrich_metadata_with_ai(
@@ -136,8 +141,9 @@ def process_folder(
     structure_tags: bool = False,
     local_model: Optional[str] = None,
     local_url: Optional[str] = None,
+    workers: int = 4,
 ) -> List[str]:
-    """Process all audio files in a directory."""
+    """Process all audio files in a directory using parallel workers."""
     in_path = Path(input_dir).resolve()
     if not in_path.is_dir():
         raise NotADirectoryError(f"Input directory not found: {input_dir}")
@@ -151,15 +157,34 @@ def process_folder(
     if csv_data:
         print(f"Loaded metadata for {len(csv_data)} track(s) from CSV")
 
-    print(f"Found {len(audio_files)} audio file(s) in {in_path.name}")
+    print(f"Processing {len(audio_files)} audio file(s) with {workers} parallel worker(s)...")
     created = []
-    for i, audio in enumerate(audio_files, 1):
-        print(f"[{i}/{len(audio_files)}] {audio.name}")
-        out = process_audio_file(
-            str(audio), output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, structure_tags, local_model, local_url, csv_data
-        )
-        if out:
-            created.append(out)
+
+    if workers > 1 and len(audio_files) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    process_audio_file,
+                    str(f), output_dir, overwrite, generate_json, auto_analyze,
+                    use_ai, ai_provider, structure_tags, local_model, local_url, csv_data
+                ): f for f in audio_files
+            }
+            for fut in as_completed(futures):
+                try:
+                    res = fut.result()
+                    if res:
+                        created.append(res)
+                except Exception as e:
+                    print(f"Error processing {futures[fut].name}: {e}", file=sys.stderr)
+    else:
+        for audio in audio_files:
+            out = process_audio_file(
+                str(audio), output_dir, overwrite, generate_json, auto_analyze,
+                use_ai, ai_provider, structure_tags, local_model, local_url, csv_data
+            )
+            if out:
+                created.append(out)
+
     return created
 
 
@@ -175,14 +200,29 @@ def download_and_prepare(
     structure_tags: bool = False,
     local_model: Optional[str] = None,
     local_url: Optional[str] = None,
+    workers: int = 4,
 ) -> List[str]:
     """Download tracks via spotdl and generate ACE-Step 1.5 lyrics and metadata."""
     audio_files = download_tracks(query_or_url, output_dir, audio_format)
     created = []
-    for p in audio_files:
-        out = process_audio_file(
-            p, output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, structure_tags, local_model, local_url
-        )
-        if out:
-            created.append(out)
+    if workers > 1 and len(audio_files) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    process_audio_file,
+                    p, output_dir, overwrite, generate_json, auto_analyze,
+                    use_ai, ai_provider, structure_tags, local_model, local_url
+                ): p for p in audio_files
+            }
+            for fut in as_completed(futures):
+                res = fut.result()
+                if res:
+                    created.append(res)
+    else:
+        for p in audio_files:
+            out = process_audio_file(
+                p, output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, structure_tags, local_model, local_url
+            )
+            if out:
+                created.append(out)
     return created

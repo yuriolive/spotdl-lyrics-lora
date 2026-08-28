@@ -31,6 +31,8 @@ Generate a valid JSON object matching this schema:
 Respond ONLY with the JSON object.
 """
 
+_TRANSFORMERS_CACHE: Dict[str, Any] = {}
+
 
 def _extract_json_from_response(raw_text: str) -> Optional[Dict[str, Any]]:
     """Extract and parse JSON object from raw model text output."""
@@ -38,7 +40,6 @@ def _extract_json_from_response(raw_text: str) -> Optional[Dict[str, Any]]:
         return json.loads(raw_text.strip())
     except Exception:
         pass
-    # Search for markdown fenced json or bracketed substring
     match = re.search(r"\{[\s\S]*\}", raw_text)
     if match:
         try:
@@ -94,12 +95,26 @@ def call_transformers_pipeline(
     prompt: str,
     model_id: str = "Qwen/Qwen2.5-0.5B-Instruct",
 ) -> Optional[Dict[str, Any]]:
-    """Run an in-process tiny model directly using HuggingFace Transformers."""
+    """Run an in-process tiny model cached in CUDA GPU memory."""
     try:
+        import torch
         from transformers import pipeline
-        pipe = pipeline("text-generation", model=model_id, max_new_tokens=512, device_map="auto")
-        messages = [{"role": "user", "content": prompt}]
-        out = pipe(messages)
+        global _TRANSFORMERS_CACHE
+        if model_id not in _TRANSFORMERS_CACHE:
+            dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+            device_map = "auto" if torch.cuda.is_available() else None
+            _TRANSFORMERS_CACHE[model_id] = pipeline(
+                "text-generation",
+                model=model_id,
+                torch_dtype=dtype,
+                device_map=device_map,
+            )
+        pipe = _TRANSFORMERS_CACHE[model_id]
+        messages = [
+            {"role": "system", "content": "You are a music metadata assistant. Respond ONLY in valid JSON matching the requested schema."},
+            {"role": "user", "content": prompt}
+        ]
+        out = pipe(messages, max_new_tokens=400, temperature=0.2)
         content = out[0]["generated_text"][-1]["content"]
         return _extract_json_from_response(content)
     except Exception:
@@ -187,7 +202,14 @@ def enrich_metadata_with_ai(
         lyrics=lyrics[:3000] if lyrics else "(Instrumental / No Lyrics)",
     )
 
-    # 1. Local Ollama or local OpenAI-compatible server
+    # 1. In-process Transformers on CUDA
+    if provider == "transformers":
+        m = model or "Qwen/Qwen2.5-0.5B-Instruct"
+        res = call_transformers_pipeline(prompt, model_id=m)
+        if res:
+            return res
+
+    # 2. Local Ollama or local OpenAI-compatible server
     if provider in ("local", "ollama") or (provider == "auto" and local_url):
         url = local_url or "http://localhost:11434"
         m = model or "qwen2.5:0.5b"
@@ -195,13 +217,6 @@ def enrich_metadata_with_ai(
             res = call_ollama_api(prompt, model=m, base_url=url)
         else:
             res = call_local_openai_api(prompt, base_url=url, model=m)
-        if res:
-            return res
-
-    # 2. In-process Transformers
-    if provider == "transformers":
-        m = model or "Qwen/Qwen2.5-0.5B-Instruct"
-        res = call_transformers_pipeline(prompt, model_id=m)
         if res:
             return res
 

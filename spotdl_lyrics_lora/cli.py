@@ -1,6 +1,7 @@
 """Command-line interface for spotdl-lyrics-lora."""
 
 import argparse
+import sys
 from spotdl_lyrics_lora.pipeline import (
     process_audio_file,
     process_folder,
@@ -10,6 +11,11 @@ from spotdl_lyrics_lora.dataset_validator import (
     validate_dataset_folder,
     print_validation_report,
 )
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -35,6 +41,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--local-model", help="Local model name (e.g. qwen2.5:0.5b, llama3.2:1b, SmolLM2-360M)")
     parser.add_argument("--local-url", help="Local server URL (e.g. http://localhost:11434, http://localhost:1234/v1)")
+    parser.add_argument("-w", "--workers", type=int, default=4, help="Number of parallel worker threads (default: 4)")
     parser.add_argument("--format", default="mp3", help="Audio format for downloads (default: mp3)")
     parser.add_argument("--validate", help="Validate a dataset folder for LoRA readiness and exit")
     return parser
@@ -66,6 +73,7 @@ def main() -> None:
             args.structure_lyrics,
             args.local_model,
             args.local_url,
+            args.workers,
         )
     elif args.file:
         process_audio_file(
@@ -92,6 +100,7 @@ def main() -> None:
             args.structure_lyrics,
             args.local_model,
             args.local_url,
+            args.workers,
         )
     else:
         parser.print_help()

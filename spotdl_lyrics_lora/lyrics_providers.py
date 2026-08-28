@@ -116,7 +116,7 @@ class LyricsOVHSource(LyricsSource):
 
 
 class SyncedLyricsPackageSource(LyricsSource):
-    """Fetch lyrics via syncedlyrics package (NetEase, Musixmatch, Megalobiz, Genius)."""
+    """Fetch lyrics via syncedlyrics package (NetEase, LRCLIB)."""
 
     def fetch_lyrics(
         self,
@@ -128,7 +128,7 @@ class SyncedLyricsPackageSource(LyricsSource):
         try:
             import syncedlyrics
             query = f"{title} {artist}".strip()
-            return syncedlyrics.search(query, enhanced=False)
+            return syncedlyrics.search(query, providers=["NetEase", "Lrclib"], enhanced=False)
         except Exception:
             return None
 
