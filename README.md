@@ -8,6 +8,16 @@ Automated toolkit to download tracks via **SpotDL**, clean and format timestamp-
 
 ---
 
+## ⚡ Multi-Tier Architecture
+
+| Mode | Engine | Speed | Requirements | Features |
+| :--- | :--- | :--- | :--- | :--- |
+| **Zero-AI Mode** | DSP Signal Analysis | **~0.1s / song** | **100% offline & free** | Exact BPM, Key/scale, RMS energy, and acoustic mood |
+| **Tiny Local Model** | Ollama / LM Studio / Transformers (`qwen2.5:0.5b`, `llama3.2:1b`) | **~0.5s / song** | **100% offline & local** (Zero API keys) | Adds `[Verse]` / `[Chorus]` section tags & studio captions |
+| **Fast Cloud AI** | Gemini 2.5 Flash / GPT-4o-mini | **~1.5s / song** | `GEMINI_API_KEY` / `OPENAI_API_KEY` | Deep multimodal genre understanding & diffusion captions |
+
+---
+
 ## ⚡ Features
 
 - 🎧 **SpotDL Integration**: Programmatically download tracks, albums, and playlists directly from Spotify URLs or search queries.
@@ -18,8 +28,8 @@ Automated toolkit to download tracks via **SpotDL**, clean and format timestamp-
   - **Key & Scale**: 12-chroma pitch class STFT correlated against 24 Krumhansl-Kessler harmonic profiles in **~0.1s**.
   - **Acoustic Mood**: RMS energy and spectral brightness dynamically categorize vibe (`punchy, high-energy`, `warm, bass-heavy`, `bright synth`, `driving`).
   - **Language Detection**: Deterministic script & stopword analysis (`pt`, `es`, `en`, `ja`, `zh`, `ko`, `fr`, `de`, `it`).
-- 🤖 **Fast AI Enrichment Mode (`--use-ai`)**:
-  - Optional Gemini Flash / GPT-4o-mini / OpenRouter integration for AI section structuring and studio diffusion captions.
+- 🦙 **Tiny Local Model Integration (`--ai-provider ollama` / `--ai-provider local`)**:
+  - Run ultra-lightweight models (e.g. `qwen2.5:0.5b`, `llama3.2:1b`, `smollm2:1.7b`, `phi3:mini`) locally via Ollama, LM Studio, or vLLM to structure lyrics without needing any internet connection or cloud API keys.
 - 📊 **Key-BPM-Finder CSV Auto-Importer**: Drag-and-drop CSV exports from [Key-BPM-Finder](https://vocalremover.org/key-bpm-finder) or DJ software.
 - 🔍 **Dataset Validator (`--validate`)**: Audits dataset readiness and checks formatting before starting LoRA fine-tuning.
 
@@ -50,29 +60,37 @@ pip install -e .
 
 ## 🚀 Quick Start
 
-### 1. Zero-AI Mode (Offline & Fast)
+### 1. Zero-AI Mode (Fastest, 100% Local & Free)
 Process an existing directory of audio files (`.mp3`, `.wav`, `.flac`, `.ogg`, `.opus`, `.m4a`):
 
 ```bash
 uv run spotdl-lora --dir ./my_music --auto-analyze --overwrite
 ```
 
-### 2. Download from Spotify & Prepare Dataset
+### 2. Tiny Local Model (Ollama / Local LLM)
+Structure lyrics into `[Verse]`/`[Chorus]` and generate descriptions using a tiny local model:
+
+```bash
+# Example with Ollama running Qwen 0.5B (takes < 0.5 GB RAM)
+# 1. Run model: ollama run qwen2.5:0.5b
+# 2. Run spotdl-lora:
+uv run spotdl-lora --dir ./my_music --use-ai --ai-provider ollama --local-model qwen2.5:0.5b --overwrite
+```
+
+### 3. Fast Cloud AI Mode (Gemini Flash / OpenAI)
+```bash
+export GEMINI_API_KEY="your-api-key"
+uv run spotdl-lora --dir ./my_music --use-ai --ai-provider gemini --overwrite
+```
+
+### 4. Download from Spotify & Prepare Dataset
 Download a Spotify playlist and generate clean `.lyrics.txt` + `.json` annotations in one step:
 
 ```bash
 uv run spotdl-lora --download "https://open.spotify.com/playlist/..." --output ./dataset --auto-analyze
 ```
 
-### 3. Fast AI Mode (Gemini Flash / OpenAI)
-Add structural section tags (`[Verse]`, `[Chorus]`) and studio-grade diffusion captions:
-
-```bash
-export GEMINI_API_KEY="your-api-key"
-uv run spotdl-lora --dir ./my_music --use-ai --ai-provider gemini --overwrite
-```
-
-### 4. Validate Dataset Readiness
+### 5. Validate Dataset Readiness
 Verify that all audio files have matching, clean lyrics and valid metadata:
 
 ```bash
@@ -117,19 +135,19 @@ from spotdl_lyrics_lora import (
     validate_dataset_folder,
 )
 
-# 1. Process all songs in a directory
+# 1. Process all songs with Zero-AI DSP
 created = process_folder("./funk-pop", auto_analyze=True, overwrite=True)
 
-# 2. Extract acoustic DSP features directly (< 0.2s)
+# 2. Process with local Ollama model
+created = process_folder("./funk-pop", use_ai=True, ai_provider="ollama", local_model="qwen2.5:0.5b", overwrite=True)
+
+# 3. Extract acoustic DSP features directly (< 0.2s)
 features = analyze_audio_features("./funk-pop/track.mp3")
 print(features)
 # {'bpm': 136, 'keyscale': 'B major', 'timesignature': '4', 'mood_tags': ['punchy, high-energy']}
 
-# 3. Download and prepare from Spotify
+# 4. Download and prepare from Spotify
 download_and_prepare("https://open.spotify.com/track/...", output_dir="./dataset", auto_analyze=True)
-
-# 4. Audit dataset health
-report = validate_dataset_folder("./dataset")
 ```
 
 ---
@@ -143,8 +161,10 @@ report = validate_dataset_folder("./dataset")
 | `--download` | Spotify URL (track, album, playlist) or search query | `None` |
 | `-o, --output` | Destination directory for output files | Same as audio |
 | `--auto-analyze` | Zero-AI detection of BPM, Key, Time Signature, and Captions | `False` |
-| `--use-ai` | Use fast AI model for section tagging & captions | `False` |
-| `--ai-provider` | AI provider (`gemini`, `openai`, `openrouter`, `auto`) | `auto` |
+| `--use-ai` | Use AI model for section tagging & captions | `False` |
+| `--ai-provider` | AI provider (`ollama`, `local`, `transformers`, `gemini`, `openai`, `openrouter`) | `auto` |
+| `--local-model` | Local model name (e.g. `qwen2.5:0.5b`, `llama3.2:1b`) | `qwen2.5:0.5b` |
+| `--local-url` | Local server URL (e.g. `http://localhost:11434`, `http://localhost:1234/v1`) | `http://localhost:11434` |
 | `--json` | Generate `.json` & `.caption.txt` metadata files | `False` |
 | `--overwrite` | Overwrite existing output files | `False` |
 | `--format` | Audio format for downloads (`mp3`, `flac`, `wav`, `opus`) | `mp3` |

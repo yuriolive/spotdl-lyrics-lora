@@ -25,6 +25,8 @@ def process_audio_file(
     auto_analyze: bool = False,
     use_ai: bool = False,
     ai_provider: str = "auto",
+    local_model: Optional[str] = None,
+    local_url: Optional[str] = None,
     csv_metadata: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Process an audio file to generate ACE-Step 1.5 lyrics and dynamic annotations."""
@@ -74,6 +76,8 @@ def process_audio_file(
             bpm=bpm_val,
             keyscale=key_val,
             provider=ai_provider,
+            model=local_model,
+            local_url=local_url,
         )
         if ai_data and ai_data.get("structured_lyrics"):
             cleaned_lyrics = clean_lyrics_text(ai_data["structured_lyrics"])
@@ -124,6 +128,8 @@ def process_folder(
     auto_analyze: bool = False,
     use_ai: bool = False,
     ai_provider: str = "auto",
+    local_model: Optional[str] = None,
+    local_url: Optional[str] = None,
 ) -> List[str]:
     """Process all audio files in a directory."""
     in_path = Path(input_dir).resolve()
@@ -144,7 +150,7 @@ def process_folder(
     for i, audio in enumerate(audio_files, 1):
         print(f"[{i}/{len(audio_files)}] {audio.name}")
         out = process_audio_file(
-            str(audio), output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, csv_data
+            str(audio), output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, local_model, local_url, csv_data
         )
         if out:
             created.append(out)
@@ -160,13 +166,15 @@ def download_and_prepare(
     auto_analyze: bool = False,
     use_ai: bool = False,
     ai_provider: str = "auto",
+    local_model: Optional[str] = None,
+    local_url: Optional[str] = None,
 ) -> List[str]:
     """Download tracks via spotdl and generate ACE-Step 1.5 lyrics and metadata."""
     audio_files = download_tracks(query_or_url, output_dir, audio_format)
     created = []
     for p in audio_files:
         out = process_audio_file(
-            p, output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider
+            p, output_dir, overwrite, generate_json, auto_analyze, use_ai, ai_provider, local_model, local_url
         )
         if out:
             created.append(out)

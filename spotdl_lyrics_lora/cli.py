@@ -1,7 +1,6 @@
 """Command-line interface for spotdl-lyrics-lora."""
 
 import argparse
-import sys
 from spotdl_lyrics_lora.pipeline import (
     process_audio_file,
     process_folder,
@@ -26,13 +25,15 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing files")
     parser.add_argument("--json", action="store_true", help="Generate .json & .caption.txt metadata")
     parser.add_argument("--auto-analyze", action="store_true", help="Zero-AI auto detection of BPM, key & caption")
-    parser.add_argument("--use-ai", action="store_true", help="Use fast AI (Gemini/OpenAI/OpenRouter) for enrichment")
+    parser.add_argument("--use-ai", action="store_true", help="Use AI (tiny local model or cloud API) for enrichment")
     parser.add_argument(
         "--ai-provider",
         default="auto",
-        choices=["auto", "gemini", "openai", "openrouter"],
+        choices=["auto", "local", "ollama", "transformers", "gemini", "openai", "openrouter"],
         help="AI provider (default: auto)",
     )
+    parser.add_argument("--local-model", help="Local model name (e.g. qwen2.5:0.5b, llama3.2:1b, SmolLM2-360M)")
+    parser.add_argument("--local-url", help="Local server URL (e.g. http://localhost:11434, http://localhost:1234/v1)")
     parser.add_argument("--format", default="mp3", help="Audio format for downloads (default: mp3)")
     parser.add_argument("--validate", help="Validate a dataset folder for LoRA readiness and exit")
     return parser
@@ -61,6 +62,8 @@ def main() -> None:
             args.auto_analyze,
             args.use_ai,
             args.ai_provider,
+            args.local_model,
+            args.local_url,
         )
     elif args.file:
         process_audio_file(
@@ -71,6 +74,8 @@ def main() -> None:
             args.auto_analyze,
             args.use_ai,
             args.ai_provider,
+            args.local_model,
+            args.local_url,
         )
     elif args.dir:
         process_folder(
@@ -81,6 +86,8 @@ def main() -> None:
             args.auto_analyze,
             args.use_ai,
             args.ai_provider,
+            args.local_model,
+            args.local_url,
         )
     else:
         parser.print_help()
